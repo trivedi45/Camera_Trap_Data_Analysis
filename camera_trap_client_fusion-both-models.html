@@ -1,0 +1,201 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<title>Camera Trap — RGB+Depth Fusion — Live</title>
+<style>
+  @import url('https://fonts.googleapis.com/css2?family=IBM+Plex+Mono:wght@400;500;600&family=IBM+Plex+Sans:wght@400;500;600;700&display=swap');
+
+  :root {
+    --ink: #14110E; --panel: #1C1811; --panel-2: #221D15; --line: #3A3122;
+    --text: #EDE3D2; --muted: #948A76; --amber: #E8934A; --amber-dim: #A66732;
+    --red: #C1544A; --green: #7BAE8F;
+  }
+  * { box-sizing: border-box; }
+  body { margin: 0; padding: 28px 20px 40px; background: var(--ink); color: var(--text); font-family: 'IBM Plex Sans', sans-serif; }
+  .mono { font-family: 'IBM Plex Mono', monospace; }
+  .frame { max-width: 980px; margin: 0 auto; border: 1px solid var(--line); border-radius: 3px; background: var(--panel); overflow: hidden; }
+  .header { display: flex; align-items: center; justify-content: space-between; padding: 12px 18px; border-bottom: 1px solid var(--line); background: var(--panel-2); }
+  .dot { width: 8px; height: 8px; border-radius: 50%; background: var(--red); }
+  .dot.ok { background: var(--green); box-shadow: 0 0 6px var(--green); }
+  .unit-label { font-size: 12px; letter-spacing: 0.09em; color: var(--muted); text-transform: uppercase; }
+  .body { display: grid; grid-template-columns: 1.2fr 1fr; }
+  @media (max-width: 720px) { .body { grid-template-columns: 1fr; } }
+  .viewport { background: #0E0C09; border-right: 1px solid var(--line); min-height: 380px; display: flex; align-items: center; justify-content: center; position: relative; overflow: hidden; }
+  .drop { width: 100%; height: 380px; display: flex; flex-direction: column; align-items: center; justify-content: center; gap: 14px; cursor: pointer; border: none; background: none; color: inherit; }
+  .drop-icon { width: 46px; height: 46px; border: 1.5px dashed var(--amber-dim); border-radius: 4px; display: flex; align-items: center; justify-content: center; color: var(--amber); font-size: 20px; }
+  .drop-text { font-size: 13px; color: var(--muted); text-align: center; line-height: 1.6; }
+  .drop-text b { color: var(--text); font-weight: 500; }
+  img#preview { display: block; width: 100%; height: auto; }
+  .panel { padding: 20px; display: flex; flex-direction: column; gap: 18px; }
+  .section-label { font-size: 11px; letter-spacing: 0.1em; text-transform: uppercase; color: var(--muted); margin-bottom: 10px; display: flex; align-items: center; gap: 8px; }
+  .section-label::after { content: ""; flex: 1; height: 1px; background: var(--line); }
+  .primary-row { display: flex; align-items: baseline; justify-content: space-between; margin-bottom: 8px; }
+  .primary-species { font-size: 20px; font-weight: 600; text-transform: capitalize; }
+  .primary-conf { font-size: 15px; color: var(--amber); font-weight: 600; }
+  .bar-track { height: 6px; background: var(--panel-2); border-radius: 3px; overflow: hidden; border: 1px solid var(--line); }
+  .bar-fill { height: 100%; background: var(--amber); }
+  .candidate { display: flex; align-items: center; justify-content: space-between; font-size: 12.5px; color: var(--muted); padding: 6px 0; border-bottom: 1px solid var(--line); }
+  .candidate:last-child { border-bottom: none; }
+  .candidate-name { color: var(--text); text-transform: capitalize; }
+  .status-line { font-size: 12px; color: var(--amber); }
+  .error-line { font-size: 12px; color: var(--red); line-height: 1.6; }
+  .empty { font-size: 13px; color: var(--muted); line-height: 1.7; }
+  .depth-wrap { border: 1px solid var(--line); border-radius: 3px; overflow: hidden; }
+  .depth-wrap img { display: block; width: 100%; height: auto; filter: contrast(1.1); }
+  .footer { border-top: 1px solid var(--line); background: var(--panel-2); padding: 10px 18px; display: flex; flex-wrap: wrap; gap: 6px 18px; font-size: 11px; color: var(--muted); }
+  .footer span b { color: var(--text); font-weight: 500; }
+  .reset-btn { font-family: 'IBM Plex Mono', monospace; font-size: 11px; letter-spacing: 0.05em; background: transparent; border: 1px solid var(--line); color: var(--muted); padding: 5px 10px; border-radius: 2px; cursor: pointer; }
+  .reset-btn:hover { border-color: var(--amber-dim); color: var(--text); }
+</style>
+</head>
+<body>
+
+<div class="frame">
+  <div class="header">
+    <div style="display:flex; align-items:center; gap:10px;">
+      <div class="dot" id="statusDot"></div>
+      <span class="mono unit-label" id="apiStatus">checking API...</span>
+    </div>
+  </div>
+
+  <div style="padding: 10px 18px; border-bottom: 1px solid var(--line); background: var(--panel-2); display:flex; align-items:center; gap:10px;">
+    <span class="mono" style="font-size:11px; color: var(--muted); text-transform: uppercase; letter-spacing: 0.08em;">Model:</span>
+    <select id="modelSelect" style="background: var(--panel); color: var(--text); border: 1px solid var(--line); padding: 6px 10px; border-radius: 3px; font-family: 'IBM Plex Mono', monospace; font-size: 12px;">
+      <option value="fusion">RGB + Depth Fusion</option>
+      <option value="resnet50">RGB Only (ResNet50)</option>
+    </select>
+  </div>
+
+  <div class="body">
+    <div class="viewport">
+      <button class="drop" id="dropBtn" type="button">
+        <div class="drop-icon">&#9650;</div>
+        <div class="drop-text"><b>Drop a camera trap image</b><br>or click to browse &middot; JPG / PNG</div>
+      </button>
+      <img id="preview" style="display:none;">
+      <input type="file" id="fileInput" accept="image/*" style="display:none;">
+    </div>
+
+    <div class="panel">
+      <div>
+        <div class="section-label mono">Species Identification</div>
+        <div id="resultArea">
+          <div class="empty">No image loaded. Upload a frame to run live inference against the RGB+Depth fusion model.</div>
+        </div>
+      </div>
+
+      <div id="depthSection" style="display:none;">
+        <div class="section-label mono">Depth Estimate</div>
+        <div class="depth-wrap">
+          <img id="depthImg">
+        </div>
+      </div>
+
+      <button class="reset-btn" id="resetBtn" style="display:none;" type="button">&#8635; NEW CAPTURE</button>
+    </div>
+  </div>
+
+  <div class="footer mono">
+    <span>MODEL: <b>ResNet50 Fusion (live)</b></span>
+    <span>ENDPOINT: <b>localhost:5000/predict</b></span>
+    <span>INPUT: <b>RGB + Depth</b></span>
+  </div>
+</div>
+
+<script>
+  const API_URL = "http://localhost:5000";
+
+  const dropBtn = document.getElementById("dropBtn");
+  const fileInput = document.getElementById("fileInput");
+  const preview = document.getElementById("preview");
+  const resultArea = document.getElementById("resultArea");
+  const resetBtn = document.getElementById("resetBtn");
+  const statusDot = document.getElementById("statusDot");
+  const apiStatus = document.getElementById("apiStatus");
+  const depthSection = document.getElementById("depthSection");
+  const depthImg = document.getElementById("depthImg");
+
+  async function checkHealth() {
+    try {
+      const res = await fetch(API_URL + "/health");
+      const data = await res.json();
+      statusDot.classList.add("ok");
+      apiStatus.textContent = "API connected · device: " + data.device;
+    } catch (e) {
+      statusDot.classList.remove("ok");
+      apiStatus.textContent = "API not reachable — is predict_api_fusion.py running?";
+    }
+  }
+  checkHealth();
+  setInterval(checkHealth, 8000);
+
+  dropBtn.addEventListener("click", () => fileInput.click());
+  fileInput.addEventListener("change", (e) => handleFile(e.target.files[0]));
+  dropBtn.addEventListener("dragover", (e) => e.preventDefault());
+  dropBtn.addEventListener("drop", (e) => {
+    e.preventDefault();
+    if (e.dataTransfer.files.length) handleFile(e.dataTransfer.files[0]);
+  });
+
+  function handleFile(file) {
+    if (!file) return;
+    const url = URL.createObjectURL(file);
+    preview.src = url;
+    preview.style.display = "block";
+    dropBtn.style.display = "none";
+    resetBtn.style.display = "inline-block";
+    depthSection.style.display = "none";
+    runPrediction(file);
+  }
+
+  async function runPrediction(file) {
+    resultArea.innerHTML = '<div class="status-line mono">&#9679; running depth + species inference...</div>';
+
+    const formData = new FormData();
+    formData.append("image", file);
+    formData.append("model", document.getElementById("modelSelect").value);
+
+    try {
+      const res = await fetch(API_URL + "/predict", { method: "POST", body: formData });
+      if (!res.ok) {
+        const err = await res.json();
+        throw new Error(err.error || "Prediction failed");
+      }
+      const data = await res.json();
+      renderResults(data.predictions);
+      if (data.depth_image) {
+        depthImg.src = data.depth_image;
+        depthSection.style.display = "block";
+      } else {
+        depthSection.style.display = "none";
+      }
+    } catch (e) {
+      resultArea.innerHTML =
+        '<div class="error-line">Could not reach the prediction API.<br>Make sure predict_api_fusion.py is running.<br><br>' + e.message + '</div>';
+    }
+  }
+
+  function renderResults(predictions) {
+    const [top, second, third] = predictions;
+    let html = '';
+    html += '<div class="primary-row"><span class="primary-species">' + top.species + '</span><span class="primary-conf mono">' + top.confidence.toFixed(1) + '%</span></div>';
+    html += '<div class="bar-track"><div class="bar-fill" style="width:' + top.confidence + '%"></div></div>';
+    html += '<div style="margin-top:14px;">';
+    if (second) html += '<div class="candidate"><span>2nd candidate</span><span><span class="candidate-name">' + second.species + '</span> &nbsp;' + second.confidence.toFixed(1) + '%</span></div>';
+    if (third) html += '<div class="candidate"><span>3rd candidate</span><span><span class="candidate-name">' + third.species + '</span> &nbsp;' + third.confidence.toFixed(1) + '%</span></div>';
+    html += '</div>';
+    resultArea.innerHTML = html;
+  }
+
+  resetBtn.addEventListener("click", () => {
+    preview.style.display = "none";
+    dropBtn.style.display = "flex";
+    resetBtn.style.display = "none";
+    depthSection.style.display = "none";
+    resultArea.innerHTML = '<div class="empty">No image loaded. Upload a frame to run live inference against the RGB+Depth fusion model.</div>';
+  });
+</script>
+
+</body>
+</html>

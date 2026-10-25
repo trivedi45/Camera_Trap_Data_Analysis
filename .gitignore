@@ -1,0 +1,7 @@
+data/
+models/
+outputs/
+*.pth
+*.pt
+*.tar.gz
+.ipynb_checkpoints/
